@@ -39,7 +39,7 @@ def check_tokens() -> bool:
 
 
 def send_message(bot, message):
-    """Отправляет сообщение"""
+    """Отправляет сообщение."""
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
         logger.debug('Успешная отправка сообщения.')
