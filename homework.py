@@ -5,6 +5,7 @@ import time
 from http import HTTPStatus
 
 import requests
+from json.decoder import JSONDecodeError
 import telegram
 from dotenv import load_dotenv
 
@@ -43,8 +44,8 @@ def send_message(bot, message):
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
         logger.debug('Успешная отправка сообщения.')
-    except Exception as error:
-        logger.error(f'Сообщения не отправляются, {error}')
+    except telegram.TelegramError:
+        logger.error('Сообщения не отправляются')
 
 
 def get_api_answer(timestamp):
@@ -57,40 +58,44 @@ def get_api_answer(timestamp):
     )
     try:
         homework_statuses = requests.get(**params)
-    except Exception as error:
+    except requests.exceptions.RequestException as error:
         logger.error(f"Ошибка при запросе к API: {error}")
     else:
         if homework_statuses.status_code != HTTPStatus.OK:
             error_message = "Статус страницы не равен 200"
             raise requests.HTTPError(error_message)
-        return homework_statuses.json()
+        try:
+            return homework_statuses.json()
+        except JSONDecodeError:
+            logger.error("N'est pas JSON")
 
 
 def check_response(response):
     """Проверяем ответ API."""
-    if isinstance(response, dict):
-        if 'homeworks' in response:
-            if isinstance(response.get('homeworks'), list):
-                return response.get('homeworks')
-            raise TypeError('API возвращает не список.')
+    if not isinstance(response, dict):
+        raise TypeError('API возвращает не словарь.')
+    if 'homeworks' not in response:
         raise KeyError('Не найден ключ homeworks.')
-    raise TypeError('API возвращает не словарь.')
+    if not isinstance(response.get('homeworks'), list):
+        raise TypeError('API возвращает не список.')
+    return response.get('homeworks')
 
 
 def parse_status(homework):
     """Извлекает статус работы."""
     homework_name = homework.get("homework_name")
     homework_status = homework.get("status")
-
-    if homework_name is not None and homework_status is not None:
-        if homework_status in HOMEWORK_VERDICTS:
-            verdict = HOMEWORK_VERDICTS.get(homework_status)
-            return ('Изменился статус проверки '
-                    + f'работы "{homework_name}". {verdict}')
-        else:
-            raise SystemError('неизвестный статус')
-    else:
-        raise KeyError('нет нужных ключей в словаре')
+    verdict = HOMEWORK_VERDICTS.get(homework_status)
+    if not verdict:
+        message_verdict = "Такого статуса нет в словаре"
+        raise KeyError(message_verdict)
+    if homework_status not in HOMEWORK_VERDICTS:
+        message_homework_status = "Такого статуса не существует"
+        raise KeyError(message_homework_status)
+    if "homework_name" not in homework:
+        message_homework_name = "Такого имени не существует"
+        raise KeyError(message_homework_name)
+    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def main():
